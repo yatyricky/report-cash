@@ -3,7 +3,7 @@ const xlsx = require("xlsx")
 const { utils } = xlsx
 const XlsxPopulate = require('xlsx-populate');
 
-const KVArray = require("./KVArray.js")
+const OrderedMap = require("./OrderedMap.js")
 
 const config = JSON.parse(fs.readFileSync("config.json", "utf8"))
 
@@ -61,17 +61,17 @@ const KW_EXPENDITURE = "支出"
 
 function newAccountData() {
     return {
-        data: new KVArray(),
+        data: new OrderedMap(),
         current: 0,
         total: 0
     }
 }
 
-const report = newAccountData()
-report.data.add(newAccountData(), KW_INCOME)
-report.data.add(newAccountData(), KW_EXPENDITURE)
-
 async function program() {
+    const report = newAccountData()
+    report.data.add(KW_INCOME, newAccountData())
+    report.data.add(KW_EXPENDITURE, newAccountData())
+
     // const outWb = await XlsxPopulate.fromBlankAsync()
     // const outWb = utils.book_new()
 
@@ -82,24 +82,24 @@ async function program() {
         ]
 
         for (let i = 0; i < report.data.size(); i++) {
-            const acc1 = report.data.getByIndex(i);
-            for (let j = 0; j < acc1.data.size(); j++) {
-                const acc2 = acc1.data.getByIndex(j);
-                const row = [null, null, 0, null, 0, 0, ""]
-                for (let k = 0; k < acc2.data.size(); k++) {
-                    const entry = acc2.data.getByIndex(k);
+            const [acc1Key, acc1Value] = report.data.getKVPair(i);
+            for (let j = 0; j < acc1Value.data.size(); j++) {
+                const [acc2Key, acc2Value] = acc1Value.data.getKVPair(j);
+                for (let k = 0; k < acc2Value.data.size(); k++) {
+                    const row = [null, null, 0, null, 0, 0, ""]
+                    const [entryKey, entryValue] = acc2Value.data.getKVPair(k);
                     if (k === 0) {
-                        row[1] = acc1.data.getKey(j)
+                        row[1] = acc2Key
                         if (j === 0) {
-                            row[0] = report.data.getKey(i)
+                            row[0] = acc1Key
                         }
                     }
                     row[2] = k + 1
-                    row[3] = acc2.data.getKey(k)
-                    row[4] = entry.current
-                    row[5] = entry.total
+                    row[3] = entryKey
+                    row[4] = entryValue.current
+                    row[5] = entryValue.total
+                    newSheet.push(row)
                 }
-                newSheet.push(row)
             }
         }
         for (const row of newSheet) {
@@ -138,9 +138,9 @@ async function program() {
             acc1 = KW_EXPENDITURE
         }
 
-        const tab1 = report.data.getByKey(acc1, newAccountData)
-        const tab = tab1.data.getByKey(acc2, newAccountData)
-        const entry = tab.data.getByKey(acc3, () => {
+        const tab1 = report.data.getValue(acc1, newAccountData)
+        const tab = tab1.data.getValue(acc2, newAccountData)
+        const entry = tab.data.getValue(acc3, () => {
             return { current: 0, total: 0 }
         })
 
