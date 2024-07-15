@@ -8,7 +8,9 @@ const OrderedMap = require("./OrderedMap.js")
 
 const config = JSON.parse(fs.readFileSync("config.json", "utf8"))
 
-const wb = xlsx.readFile(config.filePath)
+let inFilePath = process.argv[2] || config.filePath
+
+const wb = xlsx.readFile(inFilePath)
 const ws = wb.Sheets[config.sheetName]
 
 /**
@@ -79,6 +81,7 @@ async function program() {
 
     const outWb = await XlsxPopulate.fromBlankAsync()
 
+    let prevBalance
     function flushReport(moonTag) {
         const outWs = outWb.addSheet(moonTag, 0)
         outWs.cell("A1").value(`个人借支明细账${moonTag}`)
@@ -91,10 +94,12 @@ async function program() {
         outWs.range("A2:G2").value([["科目", "类别明细", "序号", "内容", "本期发生", "累计金额", "备注"]]).style({ bold: true })
         let r = 3
 
+        const totalRows = []
         for (let i = 0; i < report.data.size(); i++) {
             const [acc1Key, acc1Value] = report.data.getKVPair(i);
             const credit = acc1Key === KW_EXPENDITURE ? -1 : 1
             let rowSpan = 0
+            const subTotalRows = []
             for (let j = 0; j < acc1Value.data.size(); j++) {
                 const [acc2Key, acc2Value] = acc1Value.data.getKVPair(j);
                 const acc2Len = acc2Value.data.size()
@@ -117,6 +122,9 @@ async function program() {
                 outWs.range(`B${r - acc2Len}:B${r - 1}`).merged(true).style({ verticalAlignment: "center" })
                 const rowSubtotal = [null, "小计", null, null, round(acc2Value.current * credit), round(acc2Value.total * credit)]
                 outWs.range(`A${r}:G${r}`).value([rowSubtotal])
+                outWs.cell(`E${r}`).formula(`SUM(E${r - acc2Len}:E${r - 1})`)
+                outWs.cell(`F${r}`).formula(`SUM(F${r - acc2Len}:F${r - 1})`)
+                subTotalRows.push(r)
                 outWs.range(`B${r}:D${r}`).merged(true)
                 outWs.range(`B${r}:G${r}`).style({ fill: "DDDDDD" })
                 r++
@@ -125,7 +133,10 @@ async function program() {
             }
             const rowGrandTotal = ["合计", null, null, null, round(acc1Value.current * credit), round(acc1Value.total * credit)]
             outWs.range(`A${r}:G${r}`).value([rowGrandTotal]).style({ fill: "BBBBBB" })
+            outWs.cell(`E${r}`).formula(subTotalRows.map(e => `E${e}`).join("+"))
+            outWs.cell(`F${r}`).formula(subTotalRows.map(e => `F${e}`).join("+"))
             outWs.range(`A${r}:D${r}`).merged(true)
+            totalRows.push(r)
             if (rowSpan > 0) {
                 outWs.range(`A${r - rowSpan}:A${r - 1}`).merged(true).style({ verticalAlignment: "center" })
             }
@@ -134,6 +145,12 @@ async function program() {
         const rowBalance = ["余额", null, null, null, round(report.current), round(report.total)]
         outWs.range(`A${r}:G${r}`).value([rowBalance]).style({ bold: true })
         outWs.range(`A${r}:D${r}`).merged(true)
+        outWs.cell(`E${r}`).formula(`E${totalRows[0]}-E${totalRows[1]}`)
+        outWs.cell(`F${r}`).formula(`F${totalRows[0]}-F${totalRows[1]}`)
+        if (prevBalance !== undefined) {
+            outWs.cell(`G${r}`).formula(`${prevBalance}+E${r}`).style({ numberFormat: "0.00" })
+        }
+        prevBalance = `'${moonTag}'!F${r}`
 
         outWs.range(`A2:G${r}`).style({ borderStyle: "thin" })
 
@@ -208,7 +225,7 @@ async function program() {
     outWb.deleteSheet("Sheet1")
     outWb.activeSheet(currentMonth)
 
-    const outFilePath = `${path.parse(config.filePath).name}报表-${currentMonth}.xlsx`
+    const outFilePath = process.argv[3] || `${path.parse(inFilePath).name}报表-${currentMonth}.xlsx`
     await outWb.toFileAsync(outFilePath)
 }
 
