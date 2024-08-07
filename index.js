@@ -1,17 +1,56 @@
-const fs = require("fs")
 const path = require("path")
 const xlsx = require("xlsx")
-const { utils } = xlsx
 const XlsxPopulate = require('xlsx-populate');
-
 const OrderedMap = require("./OrderedMap.js")
+const commander = require("commander");
 
-const config = JSON.parse(fs.readFileSync("config.json", "utf8"))
+const DefaultOutFp = "<InputFilePath>-<yyyymm>.xlsx"
 
-let inFilePath = process.argv[2] || config.filePath
+commander.program.requiredOption("-i, --input <InputFilePath>", "Input file path")
+commander.program.requiredOption("-s, --sheet <InputSheetName>", "The sheet to be parsed")
+commander.program.option("-o, --output <OutputFilePath>", "Output file path", DefaultOutFp)
+commander.program.option("-r --rowstart <RowStartAt>", "Specify the first row contains data", "2");
+commander.program.option("--cdate <ColumnName>", "Specify the date column", "A");
+commander.program.option("--cdescription <ColumnName>", "Specify the description column", "B");
+commander.program.option("--caccount <ColumnName>", "Specify the account column", "D");
+commander.program.option("--accountmarker <TheMarker>", "Account begins after this string", "*");
+commander.program.option("--cdebit <ColumnName>", "Specify the debit column", "E");
+commander.program.option("--ccredit <ColumnName>", "Specify the credit column", "F");
+
+commander.program.addHelpText("afterAll", `
+Example:
+$ report_cash -i /path/to/file.xlsx -s Sheet2
+$ report_cash -i /path/to/file.xlsx -s Sheet2 -o /path/to/report/out-01.xlsx -r5 --cdebit=C --ccredit=D --caccount=G
+`)
+
+commander.program.parse()
+const options = commander.program.opts()
+
+const { utils } = xlsx
+
+/**
+ * @returns {String}
+ */
+function padWith0(inStr, len) {
+    let str = "" + inStr
+    let strLen = str.length
+    while (strLen < len) {
+        str = "0" + str
+        strLen++
+    }
+    return str
+}
+
+const inFilePath = options.input
+let outFilePath = options.output
+if (outFilePath === DefaultOutFp) {
+    const parsedInFp = path.parse(inFilePath)
+    const now = new Date()
+    outFilePath = path.join(parsedInFp.dir, `${parsedInFp.name}-${now.getFullYear()}${padWith0(now.getMonth() + 1, 2)}${padWith0(now.getDate(), 2)}.xlsx`)
+}
 
 const wb = xlsx.readFile(inFilePath)
-const ws = wb.Sheets[config.sheetName]
+const ws = wb.Sheets[options.sheet]
 
 /**
  * @returns {Date}
@@ -44,19 +83,6 @@ function GetDouble(ws, r, c) {
         return 0
     }
     return cell.v
-}
-
-/**
- * @returns {String}
- */
-function padWith0(inStr, len) {
-    let str = "" + inStr
-    let strLen = str.length
-    while (strLen < len) {
-        str = "0" + str
-        strLen++
-    }
-    return str
 }
 
 function round(n) {
@@ -225,7 +251,6 @@ async function program() {
     outWb.deleteSheet("Sheet1")
     outWb.activeSheet(currentMonth)
 
-    const outFilePath = process.argv[3] || `${path.parse(inFilePath).name}报表-${currentMonth}.xlsx`
     await outWb.toFileAsync(outFilePath)
 }
 
